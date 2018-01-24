@@ -218,7 +218,7 @@ void processMessage(){
 bool isValidMessage(){
   byte calcChecksum = 0x00;
   for(byte i=0; i< messageLength; i++){
-    calcChecksum = calcChecksum ^ message[i];
+    calcChecksum ^= message[i];
   }
   if(calcChecksum == checksum)
     return true;
