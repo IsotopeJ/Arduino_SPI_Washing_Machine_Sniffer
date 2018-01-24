@@ -1,20 +1,17 @@
-/*
-
-*/
 //#include <SPI.h>
 //const byte READ =     0b11111111;   //0xFF
 //const byte CMD_POLL = 0b00111001;   //0x39
 //const byte END_READ = 0b00001111;   //0x0F
 
 //setup pins
-const byte CLOCK = 2;
-const byte MOSI = 3;
-const byte MISO = 4;
+const byte SNIFF_CLOCK = 2;
+const byte SNIFF_MOSI = 9;
+const byte SNIFF_MISO = 10;
 
 byte MOSI_buffer;
 byte MISO_buffer;
 
-byte bitsRead, 
+byte bitsRead;
 unsigned long millisLastClock;
 
 bool readingMOSIMessage;  //set when new MOSI message detected
@@ -23,18 +20,23 @@ bool pollingSlave;
 byte bytesToRead;
 byte checksum;
 
-byte[20] message;
+byte message[20];
 byte messageLength;
-string messageSource;
+String messageSource;
 byte MOSI_last_byte;
 byte MISO_acknowledge;
 
 
 //LIFO queue for strings to send over serial
-string[5] stringQueue;
+String stringQueue[5];
 const byte QUEUE_SIZE = 5;
 byte stringQueuePushIndex;
 byte stringQueuePopIndex;
+
+void sendMessage(String);
+void queueMessage(String);
+bool isValidMessage();
+void processMessage();
 
 void setup() {
     //SPI.begin();
@@ -45,18 +47,24 @@ void setup() {
     pollingSlave = false;
     stringQueuePushIndex = 0;
     stringQueuePopIndex = 0;
-    pinMode(MOSI, INPUT);
-    pinMode(MISO, INPUT);
-    pinMode(CLOCK, INPUT);
-    attachInterrupt(digitalPinToInterrupt(CLOCK), clockPulse, FALLING);
+    pinMode(SNIFF_MOSI, INPUT);
+    pinMode(SNIFF_MISO, INPUT);
+    pinMode(SNIFF_CLOCK, INPUT);
+    attachInterrupt(digitalPinToInterrupt(SNIFF_CLOCK), clockPulse, FALLING);
     
-    serial.begin(9600);
+    Serial.begin(9600);
+    Serial.println("Hello.");
+    queueMessage("test");
 }
+
+
+
+
 
 void loop() {
   
     //clear bit counter between each byte of traffic on SPI bus (only necessary if gets out of sync)
-    if(millis() - millisLastClock > 2){
+    if(millis() - millisLastClock > 3){
       bitsRead = 0;
       MOSI_buffer = 0x00;
       MISO_buffer = 0x00;
@@ -71,10 +79,15 @@ void loop() {
 }
 
 void clockPulse(){
-  MOSI_buffer = (MOSI_buffer << 1) + digitalRead(MOSI);
-  MISO_buffer = (MISO_buffer << 1) + digitalRead(MISO);
+  //Serial.println(bitsRead);
+  MOSI_buffer = (MOSI_buffer << 1) + !digitalRead(SNIFF_MOSI);
+  MISO_buffer = (MISO_buffer << 1) + digitalRead(SNIFF_MISO);
   bitsRead++;
-  if(bitsRead == 8){
+  //Serial.print(bitsRead);
+  millisLastClock = millis();
+  if(bitsRead > 7){
+    //Serial.println(String(MOSI_buffer,HEX)+" "+String(MISO_buffer,HEX)+" "+readingMOSIMessage+" "+readingMISOMessage+" "+pollingSlave);
+    queueMessage(String(MOSI_buffer,HEX)+" "+String(MISO_buffer,HEX)+" "+readingMOSIMessage+" "+readingMISOMessage+" "+pollingSlave);
     bitsRead = 0;
     
     //not in the middle of any message, this is the first byte recorded on the bus
@@ -89,20 +102,21 @@ void clockPulse(){
     
     //we read the first byte captured on the bus and it indicated master was polling slave
     if(pollingSlave){
-      if MISO_buffer != 0xFF && MISO_buffer != 0x00){       //0xFF is not ready, 0x00 is no data to send
+      if(MISO_buffer != 0xFF && MISO_buffer != 0x00){       //0xFF is not ready, 0x00 is no data to send
         bytesToRead = MISO_buffer + 1;                      //message + checksum
         messageLength = MISO_buffer;
         readingMISOMessage = true;
-        pollingSlave = false;
-        return;
       }
+      pollingSlave = false;
+      return;
     }
     
     //readingMISOMessage means we already have captured the number of bytes to read from the slave
     if(readingMISOMessage){
       bytesToRead--;
       if(bytesToRead > 0){
-        message[messageLength-bytesToRead] = MISO_buffer
+        message[messageLength-bytesToRead] = MISO_buffer;
+        return;
       }
       else{
         checksum = MISO_buffer;
@@ -118,7 +132,7 @@ void clockPulse(){
     if(readingMOSIMessage){
       //bytes haven't been read yet, we are at beginning of message
       if(bytesToRead == 0xFF){  
-        bytesToRead = MOSI_buffer + 2  (add 2 bytes for checksum and response)
+        bytesToRead = MOSI_buffer + 2;  //(add 2 bytes for checksum and response)
         return; 
       }
       //we are in middle of reading data of message
@@ -132,6 +146,7 @@ void clockPulse(){
         checksum = MOSI_buffer;
         bytesToRead--;
         return;
+      }
       //we have read checksum, now checking for acknowledgement
       else if(bytesToRead == 1){
         MOSI_last_byte = MOSI_buffer;
@@ -140,13 +155,14 @@ void clockPulse(){
         readingMOSIMessage = false;
         messageSource = "Logic board: ";
         processMessage();
+        return;
       }
     }    
   }
 }
 
 void processMessage(){
-  string msg;
+  String msg;
   if(isValidMessage()){
     msg = messageSource;
     for(byte i=0;i<messageLength;i++){
@@ -167,12 +183,12 @@ bool isValidMessage(){
     return false;
 }
 
-void queueMessage(string msg){
+void queueMessage(String msg){
   stringQueue[stringQueuePushIndex] = msg;
   stringQueuePushIndex++;
   if(stringQueuePushIndex == QUEUE_SIZE ) stringQueuePushIndex = 0;
 }
 
-void sendMessage(string msg){
-  serial.println(msg);
+void sendMessage(String msg){
+  Serial.println(msg);
 }
