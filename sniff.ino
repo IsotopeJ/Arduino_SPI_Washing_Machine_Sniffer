@@ -22,10 +22,17 @@ byte checksum;
 
 byte message[20];
 byte messageLength;
-String messageSource;
+char messageSource;
 byte MOSI_last_byte;
 byte MISO_acknowledge;
 
+//LIFO message queue
+//format: M 04 FF FF FF FF
+//first character = source (master or slave) second char is message length
+byte messageQueue[5][20];
+const byte MQUEUE_SIZE = 5;
+byte messageQueuePushIndex;
+byte messageQueuePopIndex;
 
 //LIFO queue for strings to send over serial
 String stringQueue[5];
@@ -38,6 +45,8 @@ void queueMessage(String);
 bool isValidMessage();
 void processMessage();
 
+String uartString;
+
 void setup() {
     //SPI.begin();
     bitsRead = 0;
@@ -47,12 +56,14 @@ void setup() {
     pollingSlave = false;
     stringQueuePushIndex = 0;
     stringQueuePopIndex = 0;
+    messageQueuePushIndex = 0;
+    messageQueuePopIndex = 0;
     pinMode(SNIFF_MOSI, INPUT);
     pinMode(SNIFF_MISO, INPUT);
     pinMode(SNIFF_CLOCK, INPUT);
     attachInterrupt(digitalPinToInterrupt(SNIFF_CLOCK), clockPulse, FALLING);
     
-    Serial.begin(9600);
+    Serial.begin(115200);
     Serial.println("Hello.");
     queueMessage("test");
 }
@@ -70,21 +81,35 @@ void loop() {
       MISO_buffer = 0x00;
     }
     
+    /*
     //check if a string is queued
     if(stringQueuePopIndex != stringQueuePushIndex){
       sendMessage(stringQueue[stringQueuePopIndex]);
       stringQueuePopIndex++;
       if(stringQueuePopIndex == QUEUE_SIZE) stringQueuePopIndex = 0;
     }
+    */
+    
+    //check if message queued, build string and send over serial to PC
+    if(messageQueuePopIndex != messageQueuePushIndex){
+      uartString = (char)messageQueue[messageQueuePopIndex][0] + " ";
+      for(byte i=0; i<messageQueue[messageQueuePopIndex][1];i++ ){
+        uartString += String(messageQueue[messageQueuePopIndex][i+2],HEX) + " ";
+      }
+      Serial.println(uartString);
+      messageQueuePopIndex++;
+      if(messageQueuePopIndex >= MQUEUE_SIZE) messageQueuePopIndex = 0; 
+    }
 }
 
 void clockPulse(){
+  millisLastClock = millis();
+  
   //Serial.println(bitsRead);
   MOSI_buffer = (MOSI_buffer << 1) + !digitalRead(SNIFF_MOSI);
   MISO_buffer = (MISO_buffer << 1) + digitalRead(SNIFF_MISO);
   bitsRead++;
-  //Serial.print(bitsRead);
-  millisLastClock = millis();
+  
   if(bitsRead > 7){
     //Serial.println(String(MOSI_buffer,HEX)+" "+String(MISO_buffer,HEX)+" "+readingMOSIMessage+" "+readingMISOMessage+" "+pollingSlave);
     queueMessage(String(MOSI_buffer,HEX)+" "+String(MISO_buffer,HEX)+" "+readingMOSIMessage+" "+readingMISOMessage+" "+pollingSlave);
@@ -122,7 +147,7 @@ void clockPulse(){
         checksum = MISO_buffer;
         readingMISOMessage = false;
         bytesToRead = 0xFF;           //indicates it is not set yet
-        messageSource = "Motor Controller: ";
+        messageSource = "S";
         processMessage();
         return;
       }
@@ -137,7 +162,7 @@ void clockPulse(){
       }
       //we are in middle of reading data of message
       else if(bytesToRead > 2){
-        message[messageLength-(bytesToRead-2)] = MOSI_buffer;
+        message[messageLength+2-bytesToRead] = MOSI_buffer;
         bytesToRead--;
         return;
       }
@@ -153,7 +178,7 @@ void clockPulse(){
         MISO_acknowledge = MISO_buffer;
         bytesToRead = 0xFF;
         readingMOSIMessage = false;
-        messageSource = "Logic board: ";
+        messageSource = "M";
         processMessage();
         return;
       }
@@ -162,6 +187,7 @@ void clockPulse(){
 }
 
 void processMessage(){
+  /*
   String msg;
   if(isValidMessage()){
     msg = messageSource;
@@ -169,6 +195,18 @@ void processMessage(){
       msg += String(message[i], HEX) + " ";
     }
     queueMessage(msg);
+  }
+  */
+  
+  //add message to message queue
+  if(true){
+    messageQueue[messageQueuePushIndex][0] = messageSource;
+    messageQueue[messageQueuePushIndex][1] = messageLength;
+    for(byte i=0; i<messageLength; i++){
+      messageQueue[messageQueuePushIndex][i+2] = message[i];
+    }
+    messageQueuePushIndex++;
+    if(messageQueuePushIndex >= MQUEUE_SIZE) messageQueuePushIndex = 0;
   }
 }
 
