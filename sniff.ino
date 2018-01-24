@@ -5,8 +5,10 @@
 
 //setup pins
 const byte SNIFF_CLOCK = 2;
-const byte SNIFF_MOSI = 9;
-const byte SNIFF_MISO = 10;
+const byte SNIFF_MOSI = 9;  //PORTK bit 1
+const byte SNIFF_MISO = 10; //PORTK bit 2
+
+
 
 byte MOSI_buffer;
 byte MISO_buffer;
@@ -29,8 +31,8 @@ byte MISO_acknowledge;
 //LIFO message queue
 //format: M 04 FF FF FF FF
 //first character = source (master or slave) second char is message length
-byte messageQueue[5][20];
-const byte MQUEUE_SIZE = 5;
+byte messageQueue[10][20];
+const byte MQUEUE_SIZE = 10;
 byte messageQueuePushIndex;
 byte messageQueuePopIndex;
 
@@ -106,13 +108,16 @@ void clockPulse(){
   millisLastClock = millis();
   
   //Serial.println(bitsRead);
-  MOSI_buffer = (MOSI_buffer << 1) + !digitalRead(SNIFF_MOSI);
-  MISO_buffer = (MISO_buffer << 1) + digitalRead(SNIFF_MISO);
+  //MOSI_buffer = (MOSI_buffer << 1) + !digitalRead(SNIFF_MOSI);
+  //MISO_buffer = (MISO_buffer << 1) + digitalRead(SNIFF_MISO);
+  
+  MOSI_buffer = (MOSI_buffer << 1) + ((PORTK & 0b00000010) >> 1);  //better time with direct port access(?)
+  MISO_buffer = (MISO_buffer << 1) + ((PORTK & 0b00000100) >> 2);
   bitsRead++;
   
   if(bitsRead > 7){
     //Serial.println(String(MOSI_buffer,HEX)+" "+String(MISO_buffer,HEX)+" "+readingMOSIMessage+" "+readingMISOMessage+" "+pollingSlave);
-    queueMessage(String(MOSI_buffer,HEX)+" "+String(MISO_buffer,HEX)+" "+readingMOSIMessage+" "+readingMISOMessage+" "+pollingSlave);
+    //queueMessage(String(MOSI_buffer,HEX)+" "+String(MISO_buffer,HEX)+" "+readingMOSIMessage+" "+readingMISOMessage+" "+pollingSlave);
     bitsRead = 0;
     
     //not in the middle of any message, this is the first byte recorded on the bus
